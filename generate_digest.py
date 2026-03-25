@@ -24,15 +24,15 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import feedparser
-import google.generativeai as genai
+from google import genai
 
 # =============================================================================
 # CONFIGURATION — this is the section to edit when you want to make changes
 # =============================================================================
 
-# Gemini model. "gemini-1.5-flash" is fast and completely free.
-# Change to "gemini-1.5-pro" for richer analysis (also free tier, lower daily limit).
-GEMINI_MODEL = "gemini-1.5-flash"
+# Gemini model. "gemini-2.0-flash" is fast and completely free.
+# Change to "gemini-2.0-pro-exp" for richer analysis (also free tier).
+GEMINI_MODEL = "gemini-2.0-flash"
 
 DIGEST_TITLE = "Daily Digest"
 
@@ -204,34 +204,40 @@ def markdown_to_html(text: str) -> str:
     )
 
 
-def gemini_summarise(model, section_title: str, articles: list[dict], prompt: str) -> str:
+def gemini_summarise(client, section_title: str, articles: list[dict], prompt: str) -> str:
     if not articles:
         return "<p>No articles available today. Check back tomorrow.</p>"
 
     articles_text = "\n\n".join(
         f"[{a['source']}] {a['title']}\n{a['summary']}" for a in articles
     )
-    response = model.generate_content(
-        f"{MY_BACKGROUND}\n\n"
-        f"Section: {section_title}\n"
-        f"Task: {prompt}\n\n"
-        f"Today's articles:\n{articles_text}\n\n"
-        "Write 3-4 engaging paragraphs (no bullet points, no sub-headers). "
-        "End with a single bold sentence starting with **Key takeaway:**. "
-        "Keep it under 380 words. Do not start with the word 'Today'."
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=(
+            f"{MY_BACKGROUND}\n\n"
+            f"Section: {section_title}\n"
+            f"Task: {prompt}\n\n"
+            f"Today's articles:\n{articles_text}\n\n"
+            "Write 3-4 engaging paragraphs (no bullet points, no sub-headers). "
+            "End with a single bold sentence starting with **Key takeaway:**. "
+            "Keep it under 380 words. Do not start with the word 'Today'."
+        ),
     )
     return markdown_to_html(response.text)
 
 
-def gemini_explain_concept(model, concept: dict) -> str:
-    response = model.generate_content(
-        f"{MY_BACKGROUND}\n\n"
-        f"Explain this concept engagingly in 2-3 paragraphs for someone "
-        f"with a physics/engineering background:\n\n"
-        f"Title: {concept['title']}\n"
-        f"Wikipedia summary: {concept['extract']}\n\n"
-        "Connect it to something interesting in the modern world if possible. "
-        "End with one bold **surprising fact or implication**."
+def gemini_explain_concept(client, concept: dict) -> str:
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=(
+            f"{MY_BACKGROUND}\n\n"
+            f"Explain this concept engagingly in 2-3 paragraphs for someone "
+            f"with a physics/engineering background:\n\n"
+            f"Title: {concept['title']}\n"
+            f"Wikipedia summary: {concept['extract']}\n\n"
+            "Connect it to something interesting in the modern world if possible. "
+            "End with one bold **surprising fact or implication**."
+        ),
     )
     return markdown_to_html(response.text)
 
@@ -554,8 +560,7 @@ def main() -> None:
             "Get a free key at aistudio.google.com and add it as a GitHub secret."
         )
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(GEMINI_MODEL)
+    client = genai.Client(api_key=api_key)
     date_str = datetime.datetime.now().strftime("%A, %B %d, %Y")
     pdf_filename = f"digest-{datetime.datetime.now().strftime('%Y-%m-%d')}.pdf"
 
@@ -564,7 +569,7 @@ def main() -> None:
         print(f"Fetching {config['title']}...")
         articles = fetch_section_articles(config)
         print(f"  Got {len(articles)} articles. Summarising with Gemini...")
-        content_html = gemini_summarise(model, config["title"], articles, config["prompt"])
+        content_html = gemini_summarise(client, config["title"], articles, config["prompt"])
         sections_data.append({
             "key": key,
             "title": config["title"],
@@ -579,7 +584,7 @@ def main() -> None:
     print(f"  Concept: {concept_raw['title']}. Explaining with Gemini...")
     concept_data = {
         "title": concept_raw["title"],
-        "content": gemini_explain_concept(model, concept_raw),
+        "content": gemini_explain_concept(client, concept_raw),
         "url": concept_raw.get("url", ""),
     }
 

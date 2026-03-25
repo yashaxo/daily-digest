@@ -1,0 +1,55 @@
+name: Generate Daily Digest
+
+on:
+  schedule:
+    # Runs at 5:00 AM UTC every day (6am UK winter / 7am UK summer).
+    # To change the time: edit the cron value below.
+    # Use https://crontab.guru to build a cron expression.
+    - cron: "0 6 * * *"
+
+  # This lets you click "Run workflow" in GitHub Actions to test it manually.
+  workflow_dispatch:
+
+# Required so the workflow can commit index.html back to the repo.
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies for PDF generation
+        run: sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libfontconfig1
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate the digest
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python generate_digest.py
+
+      - name: Commit and push updated digest
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add index.html
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "Daily digest: $(date +%Y-%m-%d)"
+            git push
+          fi
